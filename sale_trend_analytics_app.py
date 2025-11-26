@@ -43,7 +43,7 @@ REQUIRED_FIELDS = {
 def get_db_connection_str():
     """
     Constructs DB connection string from secrets.
-    Expected secrets format in secrets.toml:
+    Expected secrets format in .streamlit/secrets.toml:
     [mysql]
     host = "localhost"
     port = 3306
@@ -1768,3 +1768,4 @@ def main():
 if __name__ == "__main__":
 
     main()
+
