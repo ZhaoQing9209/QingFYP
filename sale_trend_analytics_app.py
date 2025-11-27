@@ -42,22 +42,52 @@ REQUIRED_FIELDS = {
 # --- 2. Database Helpers ---
 def get_db_connection_str():
     """
-    Constructs DB connection string from secrets.
-    Expected secrets format in .streamlit/secrets.toml:
-    [mysql]
-    host = "localhost"
-    port = 3306
-    database = "qingfyp"
-    username = "root"
-    password = "Qing3465$11"
+    Constructs DB connection string from manual input or session state.
     """
     try:
-        if "mysql" in st.secrets:
-            creds = st.secrets["mysql"]
+        if 'db_credentials' in st.session_state:
+            creds = st.session_state.db_credentials
             return f"mysql+pymysql://{creds['username']}:{creds['password']}@{creds['host']}:{creds['port']}/{creds['database']}"
         return None
     except Exception:
         return None
+
+def show_db_config_form():
+    """Shows database configuration form and stores credentials in session state"""
+    st.markdown("### 🔧 Database Configuration")
+    st.info("Configure your MySQL database connection to save processed data.")
+    
+    with st.form("db_config_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            host = st.text_input("Host", value="localhost", help="Database host address")
+            port = st.number_input("Port", value=3306, min_value=1, max_value=65535, help="Database port")
+            database = st.text_input("Database Name", value="qingfyp", help="Name of your database")
+        
+        with col2:
+            username = st.text_input("Username", value="root", help="Database username")
+            password = st.text_input("Password", type="password", help="Database password")
+            table_name = st.text_input("Table Name", value="product_sales", help="Target table name")
+        
+        submitted = st.form_submit_button("💾 Save Database Configuration", type="primary")
+        
+        if submitted:
+            if all([host, port, database, username, password]):
+                st.session_state.db_credentials = {
+                    'host': host,
+                    'port': port,
+                    'database': database,
+                    'username': username,
+                    'password': password,
+                    'table_name': table_name
+                }
+                st.success("✅ Database configuration saved successfully!")
+                return True
+            else:
+                st.error("❌ Please fill all database connection fields")
+                return False
+    return None
 
 # --- 3. Data Processing Class ---
 class DataProcessor:
@@ -176,7 +206,7 @@ class DataProcessor:
         """Saves the processed DataFrame to MySQL following the database schema."""
         db_str = get_db_connection_str()
         if not db_str:
-            return False, "⚠️ Database credentials not configured in .streamlit/secrets.toml"
+            return False, "⚠️ Please configure database connection first in the Database Configuration section."
         
         try:
             engine = create_engine(db_str)
@@ -262,18 +292,18 @@ class DataProcessor:
                 if not sales_df.empty:
                     sales_df.to_sql('sales', con=engine, if_exists='append', index=False)
                 
-                return True, f"Successfully saved data to normalized tables"
+                return True, f"✅ Successfully saved data to normalized tables"
             except Exception as e:
-                return False, f"Database Error: {str(e)}"
+                return False, f"❌ Database Error: {str(e)}"
                 
         except Exception as e:
-            return False, f"Database Connection Error: {str(e)}"
+            return False, f"❌ Database Connection Error: {str(e)}"
 
     def fetch_latest_records(self, limit=5, table_name="product_sales"):
         """Fetches latest records to verify insertion."""
         db_str = get_db_connection_str()
         if not db_str:
-            return None, "Database not configured."
+            return None, "❌ Database not configured."
         
         try:
             engine = create_engine(db_str)
@@ -301,7 +331,7 @@ class DataProcessor:
                     df = pd.read_sql(query, conn, params={"limit": limit})
                     return df, None
                 except Exception as e:
-                    return None, f"Query failed (Table might not exist yet): {str(e)}"
+                    return None, f"❌ Query failed (Table might not exist yet): {str(e)}"
         except Exception as e:
             return None, str(e)
 
@@ -1246,6 +1276,8 @@ def initialize_session_state():
         st.session_state.uploaded_data_preview = None
     if 'sample_mapping' not in st.session_state:
         st.session_state.sample_mapping = {}
+    if 'db_credentials' not in st.session_state:
+        st.session_state.db_credentials = None
 
 # --- 8. Pages ---
 def show_home_page():
@@ -1266,9 +1298,10 @@ def show_home_page():
     
     #### 🚀 Getting Started:
     1. Navigate to **Data Upload** to import your sales data. You will be prompted to map your column names to the required fields.
-    2. Verify data and **Save to MySQL** if desired.
-    3. Explore the **Dashboard** for an overview of your sales performance.
-    4. Use **Product Performance** for detailed product comparisons and insights.
+    2. Configure your **Database Settings** to enable saving to MySQL.
+    3. Verify data and **Save to MySQL** if desired.
+    4. Explore the **Dashboard** for an overview of your sales performance.
+    5. Use **Product Performance** for detailed product comparisons and insights.
     """)
     
     col1, col2, col3 = st.columns(3)
@@ -1285,7 +1318,7 @@ def show_home_page():
 def show_data_upload_page():
     st.title("📁 Data Upload & Management")
     
-    tab1, tab2 = st.tabs(["Upload Data", "Generate Sample Data"])
+    tab1, tab2, tab3 = st.tabs(["Upload Data", "Generate Sample Data", "Database Configuration"])
     processor = DataProcessor()
     
     # --- Tab 1: Upload Data ---
@@ -1413,6 +1446,10 @@ def show_data_upload_page():
                 st.markdown("#### Sample Data Preview")
                 st.dataframe(df_raw.head(5), use_container_width=True)
                 
+    # --- Tab 3: Database Configuration ---
+    with tab3:
+        show_db_config_form()
+    
     # --- Save to MySQL Section (Common) ---
     if st.session_state.processed_data is not None:
         st.markdown("---")
@@ -1423,27 +1460,33 @@ def show_data_upload_page():
         with col1:
             st.info("Store processed data into MySQL for long-term analysis.")
             if st.button("Save to MySQL Tables", type="primary"):
-                with st.spinner("Saving records to database..."):
-                    success, msg = processor.save_to_mysql(st.session_state.processed_data)
-                    if success:
-                        st.success(msg)
-                        st.balloons()
-                    else:
-                        st.error(msg)
+                if 'db_credentials' not in st.session_state:
+                    st.error("❌ Please configure database connection first in the Database Configuration tab.")
+                else:
+                    with st.spinner("Saving records to database..."):
+                        success, msg = processor.save_to_mysql(st.session_state.processed_data)
+                        if success:
+                            st.success(msg)
+                            st.balloons()
+                        else:
+                            st.error(msg)
         
         # --- Verification Section ---
         with col2:
             with st.expander("🔍 Verify Database Records"):
                 st.markdown("Click below to fetch the latest 5 records directly from your MySQL database.")
                 if st.button("Refresh/View Last 5 Saved Records"):
-                    df_db, err = processor.fetch_latest_records()
-                    if err:
-                        st.warning(f"Could not fetch records: {err}")
-                    elif df_db is not None and not df_db.empty:
-                        st.dataframe(df_db)
-                        st.caption("Showing last 5 records from MySQL tables joined together.")
+                    if 'db_credentials' not in st.session_state:
+                        st.error("❌ Please configure database connection first.")
                     else:
-                        st.info("Tables are empty or do not exist yet.")
+                        df_db, err = processor.fetch_latest_records()
+                        if err:
+                            st.warning(f"Could not fetch records: {err}")
+                        elif df_db is not None and not df_db.empty:
+                            st.dataframe(df_db)
+                            st.caption("Showing last 5 records from MySQL tables joined together.")
+                        else:
+                            st.info("Tables are empty or do not exist yet.")
 
 def show_dashboard_page():
     st.title("📊 Sales Dashboard")
@@ -1766,6 +1809,4 @@ def main():
         show_reports_page()
 
 if __name__ == "__main__":
-
     main()
-
