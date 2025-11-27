@@ -1,6 +1,8 @@
-streamlit==1.51.0        # latest release (Oct 2025) :contentReference[oaicite:0]{index=0}
-pandas                  # leave version unspecified or use latest (e.g. pandas>=2.0)
-numpy                   # same — can use latest (e.g. numpy>=1.25)
-plotly                  # latest plotly 6.x (Plotly 6.0⁺ with Narwhals) :contentReference[oaicite:1]{index=1}
-reportlab               # use latest (do not hardcode too low — but ensure compatibility with Python version)
-SQLAlchemy==2.0.44      # latest 2.0 series release :contentReference[oaicite:2]{index=2}
+streamlit
+pandas
+numpy
+plotly
+reportlab
+sqlalchemy
+pymysql
+cryptography
